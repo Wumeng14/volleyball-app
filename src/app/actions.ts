@@ -31,22 +31,31 @@ export async function toggleLeave(
   };
 }
 
-/** 遞補報名 */
-export async function subSignup(sessionId: string): Promise<ActionResult> {
+/** 候補報名(guestName 有值 = 幫無帳號朋友登記) */
+export async function subSignup(
+  sessionId: string,
+  guestName?: string
+): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("fn_sub_signup", {
     p_session_id: sessionId,
+    p_guest_name: guestName?.trim() || null,
   });
   revalidatePath("/sub");
   if (error) return { ok: false, message: errMessage(error) };
-  return { ok: true, message: "報名成功!" };
+  return {
+    ok: true,
+    message: guestName
+      ? `已幫 ${guestName} 登記候補`
+      : "已登記候補!有人請假時依登記順序自動遞補",
+  };
 }
 
-/** 遞補取消報名 */
-export async function subWithdraw(sessionId: string): Promise<ActionResult> {
+/** 取消候補報名(本人或代登者皆可) */
+export async function subWithdraw(sessionSubId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("fn_sub_withdraw", {
-    p_session_id: sessionId,
+    p_session_sub_id: sessionSubId,
   });
   revalidatePath("/sub");
   if (error) return { ok: false, message: errMessage(error) };

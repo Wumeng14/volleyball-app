@@ -1,6 +1,5 @@
 "use server";
 
-import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -76,6 +75,7 @@ export async function createSeason(formData: FormData) {
     sub_fee_per_session: subFee,
     leave_deadline_hours: deadlineHours,
     refund_requires_sub: requiresSub,
+    sub_signup_open_days: Number(formData.get("sub_signup_open_days") || 7),
   });
   if (ruleErr) throw new Error(errMessage(ruleErr));
 
@@ -108,6 +108,7 @@ export async function addRuleVersion(
     sub_fee_per_session: Number(formData.get("sub_fee_per_session")),
     leave_deadline_hours: Number(formData.get("leave_deadline_hours")),
     refund_requires_sub: formData.get("refund_requires_sub") === "on",
+    sub_signup_open_days: Number(formData.get("sub_signup_open_days") || 7),
     created_by: userId,
   });
   revalidatePath(`/admin/seasons/${seasonId}`);
@@ -197,76 +198,41 @@ export async function proxyEvent(
   return { ok: true, message: "代登完成" };
 }
 
-/** 管理員代登遞補(既有 profile;報名數不可超過有效請假數) */
+/** 管理員代登候補(既有 profile;超出缺額自動排候補) */
 export async function proxySub(
   seasonId: string,
   formData: FormData
 ): Promise<ActionResult> {
   const { supabase, userId } = await requireAdmin();
-  const sessionId = String(formData.get("session_id"));
-
-  const { data: slot } = await supabase
-    .from("v_session_slots")
-    .select("open_slots")
-    .eq("session_id", sessionId)
-    .single();
-  if (!slot || slot.open_slots <= 0) {
-    return { ok: false, message: "本場已無遞補缺額" };
-  }
-
   const { error } = await supabase.from("session_subs").insert({
-    session_id: sessionId,
+    session_id: String(formData.get("session_id")),
     profile_id: String(formData.get("profile_id")),
     status: "signed_up",
     created_by: userId,
   });
   revalidatePath(`/admin/seasons/${seasonId}`);
   if (error) return { ok: false, message: errMessage(error) };
-  return { ok: true, message: "代登遞補完成" };
+  return { ok: true, message: "代登完成(超出缺額時自動排候補)" };
 }
 
-/** 管理員代登「無帳號臨打」:建立佔位帳號 + 遞補報名 */
+/** 管理員代登「無帳號臨打」:姓名制,不建帳號 */
 export async function createGuestSub(
   seasonId: string,
   formData: FormData
 ): Promise<ActionResult> {
   const { supabase, userId } = await requireAdmin();
-  const sessionId = String(formData.get("session_id"));
   const displayName = String(formData.get("display_name")).trim();
   if (!displayName) return { ok: false, message: "請輸入臨打姓名" };
 
-  const { data: slot } = await supabase
-    .from("v_session_slots")
-    .select("open_slots")
-    .eq("session_id", sessionId)
-    .single();
-  if (!slot || slot.open_slots <= 0) {
-    return { ok: false, message: "本場已無遞補缺額" };
-  }
-
-  const admin = createAdminClient();
-  const guestEmail = `guest_${Date.now()}@line.local`;
-  const { data: created, error: createErr } = await admin.auth.admin.createUser({
-    email: guestEmail,
-    email_confirm: true,
-  });
-  if (createErr) return { ok: false, message: errMessage(createErr) };
-
-  const { error: profileErr } = await admin.from("profiles").insert({
-    id: created.user.id,
-    display_name: `${displayName}(臨打)`,
-  });
-  if (profileErr) return { ok: false, message: errMessage(profileErr) };
-
-  const { error: subErr } = await admin.from("session_subs").insert({
-    session_id: sessionId,
-    profile_id: created.user.id,
+  const { error } = await supabase.from("session_subs").insert({
+    session_id: String(formData.get("session_id")),
+    guest_name: displayName,
     status: "signed_up",
     created_by: userId,
   });
   revalidatePath(`/admin/seasons/${seasonId}`);
-  if (subErr) return { ok: false, message: errMessage(subErr) };
-  return { ok: true, message: `已為 ${displayName} 代登遞補` };
+  if (error) return { ok: false, message: errMessage(error) };
+  return { ok: true, message: `已為 ${displayName} 登記候補` };
 }
 
 /** 標記遞補者 no_show(不釋出配對,原請假者照退;費用爭議線下處理) */

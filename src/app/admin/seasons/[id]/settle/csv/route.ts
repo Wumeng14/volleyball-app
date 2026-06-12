@@ -54,30 +54,62 @@ export async function GET(
     );
   }
 
-  const { data: subs } = await supabase
-    .from("session_subs")
-    .select("profile_id, sessions!inner(season_id), profiles(display_name)")
-    .eq("sessions.season_id", seasonId);
+  const { data: entries } = await supabase
+    .from("v_sub_entries")
+    .select("*")
+    .eq("season_id", seasonId)
+    .order("session_date");
 
-  const subIds = [...new Set((subs ?? []).map((s) => s.profile_id as string))];
+  const entryIds = (entries ?? []).map((e) => e.session_sub_id as string);
+  const { data: subPayments } = entryIds.length
+    ? await supabase
+        .from("payment_events")
+        .select("session_sub_id, amount")
+        .in("session_sub_id", entryIds)
+    : { data: [] };
+  const paidByEntry = new Map<string, number>();
+  for (const p of subPayments ?? []) {
+    paidByEntry.set(
+      p.session_sub_id,
+      (paidByEntry.get(p.session_sub_id) ?? 0) + p.amount
+    );
+  }
+
+  const profileIds = [
+    ...new Set(
+      (entries ?? []).map((e) => e.profile_id as string | null).filter(Boolean)
+    ),
+  ] as string[];
+  const { data: subProfiles } = profileIds.length
+    ? await supabase.from("profiles").select("id, display_name").in("id", profileIds)
+    : { data: [] };
+  const profileName = new Map(
+    (subProfiles ?? []).map((p) => [p.id, p.display_name ?? ""])
+  );
+
   lines.push("");
-  lines.push("=== 遞補者收費 ===");
-  lines.push("遞補者,遞補場次,應繳,已繳,餘額");
-  for (const pid of subIds) {
-    const { data } = await supabase.rpc("fn_sub_balance", {
-      p_profile_id: pid,
-      p_season_id: seasonId,
-    });
-    const b = (data as Record<string, number>[])?.[0];
-    const name = (subs ?? []).find((s) => s.profile_id === pid)
-      ?.profiles as unknown as { display_name: string } | null;
+  lines.push("=== 候補/臨打收費(確定上場才計費) ===");
+  lines.push("姓名,場次日期,狀態,應繳,已繳");
+  for (const e of entries ?? []) {
+    if (e.status === "withdrawn") continue;
+    const name = e.profile_id
+      ? profileName.get(e.profile_id) ?? ""
+      : `${e.guest_name}(臨打)`;
+    const status =
+      e.session_status === "cancelled"
+        ? "場次取消"
+        : e.status === "no_show"
+          ? "未到場"
+          : e.confirmed
+            ? "確定上場"
+            : "候補中";
     lines.push(
       [
-        name?.display_name ?? "",
-        b?.sub_sessions ?? 0,
-        b?.amount_due ?? 0,
-        b?.paid_total ?? 0,
-        b?.balance ?? 0,
+        name,
+        e.session_date,
+        status,
+        e.confirmed ? e.sub_fee_per_session : 0,
+        paidByEntry.get(e.session_sub_id) ?? 0,
       ].join(",")
     );
   }

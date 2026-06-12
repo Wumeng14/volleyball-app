@@ -1,12 +1,12 @@
 ﻿-- =============================================================
--- 驗收測試(pgTAP)— 對應規格第 5 節案例 1–10
+-- 驗收測試(pgTAP)— 規格第 5 節案例 1–10 + v1.3 候補制
 -- 執行:supabase test db
 -- 整個檔案在交易內執行並 rollback,不汙染資料。
 -- =============================================================
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(25);
+select plan(37);
 
 -- ---------- Fixtures ----------
 insert into auth.users (id, instance_id, aud, role, created_at, updated_at)
@@ -42,11 +42,12 @@ insert into season_rules (season_id, season_fee, refund_per_session, sub_fee_per
   ('bbbb0000-0000-0000-0000-000000000001', 1800, 150, 225, 2, true, now() - interval '30 days', 'aaaa0000-0000-0000-0000-000000000001'),
   ('bbbb0000-0000-0000-0000-000000000002', 1000, 100, 225, 2, true, now() - interval '30 days', 'aaaa0000-0000-0000-0000-000000000001');
 
--- 測試季 4 場(皆在未來,離截止還很遠)
+-- 測試季場次(sess1/2/4 在報名窗口內;sess5 在窗口外)
 insert into sessions (id, season_id, session_date, start_time, end_time, venue) values
-  ('cccc0000-0000-0000-0000-000000000001', 'bbbb0000-0000-0000-0000-000000000001', current_date + 7,  '19:00', '21:00', 'A 館'),
-  ('cccc0000-0000-0000-0000-000000000002', 'bbbb0000-0000-0000-0000-000000000001', current_date + 14, '19:00', '21:00', 'A 館'),
-  ('cccc0000-0000-0000-0000-000000000004', 'bbbb0000-0000-0000-0000-000000000001', current_date + 21, '19:00', '21:00', 'A 館');
+  ('cccc0000-0000-0000-0000-000000000001', 'bbbb0000-0000-0000-0000-000000000001', current_date + 3, '19:00', '21:00', 'A 館'),
+  ('cccc0000-0000-0000-0000-000000000002', 'bbbb0000-0000-0000-0000-000000000001', current_date + 4, '19:00', '21:00', 'A 館'),
+  ('cccc0000-0000-0000-0000-000000000004', 'bbbb0000-0000-0000-0000-000000000001', current_date + 5, '19:00', '21:00', 'A 館'),
+  ('cccc0000-0000-0000-0000-000000000005', 'bbbb0000-0000-0000-0000-000000000001', current_date + 20, '19:00', '21:00', 'A 館');
 
 -- 案例 6 用:1 小時後開打的場次(已過截止)
 insert into sessions (id, season_id, session_date, start_time, end_time, venue)
@@ -76,12 +77,12 @@ insert into events (session_id, season_member_id, type, created_by, created_at) 
   ('cccc0000-0000-0000-0000-000000000001', 'dddd0000-0000-0000-0000-000000000004', 'leave', 'aaaa0000-0000-0000-0000-000000000005', now() - interval '3 hours'),
   ('cccc0000-0000-0000-0000-000000000001', 'dddd0000-0000-0000-0000-000000000004', 'leave_cancel', 'aaaa0000-0000-0000-0000-000000000005', now() - interval '2 hours');
 
--- 場次 1:遞補 s1、s2 報名(先到先得)
+-- 場次 1:候補 s1、s2 報名(先到先得,明確時間避免同交易時間戳並列)
 insert into session_subs (session_id, profile_id, status, created_by, created_at) values
   ('cccc0000-0000-0000-0000-000000000001', 'aaaa0000-0000-0000-0000-000000000007', 'signed_up', 'aaaa0000-0000-0000-0000-000000000007', now() - interval '2 hours'),
   ('cccc0000-0000-0000-0000-000000000001', 'aaaa0000-0000-0000-0000-000000000008', 'signed_up', 'aaaa0000-0000-0000-0000-000000000008', now() - interval '1 hour');
 
--- ---------- 案例 2:3 人請假、2 人遞補 → 最早 2 人已遞補,第 3 人待遞補 ----------
+-- ---------- 案例 2:3 人請假、2 人候補 → 最早 2 人已遞補,第 3 人待遞補 ----------
 select is(
   (select status from v_member_session_status where session_id = 'cccc0000-0000-0000-0000-000000000001' and season_member_id = 'dddd0000-0000-0000-0000-000000000001'),
   'leave_matched', '案例2:最早請假者 m1 已遞補');
@@ -100,19 +101,19 @@ select is(
   (select refundable_leaves from fn_refund_preview('dddd0000-0000-0000-0000-000000000004')),
   0, '案例1:取消請假後可退場次 = 0');
 
--- ---------- 案例 2 續:第 3 位遞補報名 → m3 自動轉已遞補 ----------
+-- ---------- 案例 2 續:第 3 位候補報名 → m3 自動轉已遞補 ----------
 insert into session_subs (session_id, profile_id, status, created_by) values
   ('cccc0000-0000-0000-0000-000000000001', 'aaaa0000-0000-0000-0000-000000000009', 'signed_up', 'aaaa0000-0000-0000-0000-000000000009');
 select is(
   (select status from v_member_session_status where session_id = 'cccc0000-0000-0000-0000-000000000001' and season_member_id = 'dddd0000-0000-0000-0000-000000000003'),
-  'leave_matched', '案例2:第三位遞補報名後 m3 轉已遞補');
+  'leave_matched', '案例2:第三位候補報名後 m3 轉已遞補');
 
--- ---------- 案例 3:遞補撤銷 → 最晚請假者退回待遞補 ----------
+-- ---------- 案例 3:候補撤銷 → 最晚請假者退回待遞補 ----------
 update session_subs set status = 'withdrawn'
 where session_id = 'cccc0000-0000-0000-0000-000000000001' and profile_id = 'aaaa0000-0000-0000-0000-000000000009';
 select is(
   (select status from v_member_session_status where session_id = 'cccc0000-0000-0000-0000-000000000001' and season_member_id = 'dddd0000-0000-0000-0000-000000000003'),
-  'leave_pending', '案例3:遞補撤銷後 m3 退回待遞補');
+  'leave_pending', '案例3:候補撤銷後 m3 退回待遞補');
 select is(
   (select status from v_member_session_status where session_id = 'cccc0000-0000-0000-0000-000000000001' and season_member_id = 'dddd0000-0000-0000-0000-000000000001'),
   'leave_matched', '案例3:較早請假者 m1 不受影響');
@@ -120,22 +121,83 @@ select is(
   (select open_slots::int from v_session_slots where session_id = 'cccc0000-0000-0000-0000-000000000001'),
   1, '案例3:撤銷後缺額回到 1');
 
--- ---------- 案例 10:遞補額滿 → 缺額 0、報名被拒 ----------
+-- ---------- v1.3 臨打:隊員幫無帳號朋友代登,代登者可取消 ----------
+select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000003","role":"authenticated"}', true);
+set local role authenticated;
+select lives_ok($$ select fn_sub_signup('cccc0000-0000-0000-0000-000000000001', '小王') $$, '臨打:隊員可幫無帳號朋友代登');
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+select is(
+  (select confirmed from v_sub_entries where guest_name = '小王'),
+  true, '臨打:朋友代登後為第 3 順位,確定上場');
+select is(
+  (select status from v_member_session_status where session_id = 'cccc0000-0000-0000-0000-000000000001' and season_member_id = 'dddd0000-0000-0000-0000-000000000003'),
+  'leave_matched', '臨打:代登後 m3 自動轉已遞補');
+
+-- 先以 postgres 取出 id(RLS 下 m3 看不到別人代登的列,需繞道)
+create temp table t_guest_id as select id from session_subs where guest_name = '小王';
+grant select on t_guest_id to authenticated;
+
+select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000004","role":"authenticated"}', true);
+set local role authenticated;
+select throws_ok(
+  $$ select fn_sub_withdraw((select id from t_guest_id)) $$,
+  'P0001', '只有本人或代登者可以取消', '臨打:非代登者不可取消');
+reset role;
+select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000003","role":"authenticated"}', true);
+set local role authenticated;
+select lives_ok($$ select fn_sub_withdraw((select id from session_subs where guest_name = '小王')) $$, '臨打:代登者可取消報名');
+reset role;
+select set_config('request.jwt.claims', '', true);
+select is(
+  (select status from v_member_session_status where session_id = 'cccc0000-0000-0000-0000-000000000001' and season_member_id = 'dddd0000-0000-0000-0000-000000000003'),
+  'leave_pending', '臨打:代登者取消後 m3 退回待遞補');
+
+-- ---------- 案例 10(v1.3 改版):額滿後仍可排候補,候補中不計費 ----------
 insert into events (session_id, season_member_id, type, created_by, created_at) values
   ('cccc0000-0000-0000-0000-000000000004', 'dddd0000-0000-0000-0000-000000000001', 'leave', 'aaaa0000-0000-0000-0000-000000000002', now() - interval '2 hours'),
   ('cccc0000-0000-0000-0000-000000000004', 'dddd0000-0000-0000-0000-000000000002', 'leave', 'aaaa0000-0000-0000-0000-000000000003', now() - interval '1 hour');
-insert into session_subs (session_id, profile_id, status, created_by) values
-  ('cccc0000-0000-0000-0000-000000000004', 'aaaa0000-0000-0000-0000-000000000007', 'signed_up', 'aaaa0000-0000-0000-0000-000000000007'),
-  ('cccc0000-0000-0000-0000-000000000004', 'aaaa0000-0000-0000-0000-000000000008', 'signed_up', 'aaaa0000-0000-0000-0000-000000000008');
+insert into session_subs (session_id, profile_id, status, created_by, created_at) values
+  ('cccc0000-0000-0000-0000-000000000004', 'aaaa0000-0000-0000-0000-000000000007', 'signed_up', 'aaaa0000-0000-0000-0000-000000000007', now() - interval '2 hours'),
+  ('cccc0000-0000-0000-0000-000000000004', 'aaaa0000-0000-0000-0000-000000000008', 'signed_up', 'aaaa0000-0000-0000-0000-000000000008', now() - interval '1 hour');
 select is(
   (select open_slots::int from v_session_slots where session_id = 'cccc0000-0000-0000-0000-000000000004'),
-  0, '案例10:遞補數 = 請假數 → 缺額 0');
+  0, '案例10:候補數 = 請假數 → 缺額 0');
 
 select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000009","role":"authenticated"}', true);
 set local role authenticated;
+select lives_ok($$ select fn_sub_signup('cccc0000-0000-0000-0000-000000000004') $$, '案例10:額滿後仍可報名排候補');
+select is(
+  (select sub_sessions from fn_sub_balance('aaaa0000-0000-0000-0000-000000000009', 'bbbb0000-0000-0000-0000-000000000001')),
+  0, '案例10:候補中(超出缺額)不計費');
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+select is(
+  (select confirmed from v_sub_entries where session_id = 'cccc0000-0000-0000-0000-000000000004' and profile_id = 'aaaa0000-0000-0000-0000-000000000009'),
+  false, '案例10:額滿後報名 → 候補中(第 3 順位)');
+select is(
+  (select waitlist_count::int from v_session_slots where session_id = 'cccc0000-0000-0000-0000-000000000004'),
+  1, '案例10:候補人數統計 = 1');
+
+-- 有人請假 → 候補自動升為確定上場、開始計費
+insert into events (session_id, season_member_id, type, created_by) values
+  ('cccc0000-0000-0000-0000-000000000004', 'dddd0000-0000-0000-0000-000000000003', 'leave', 'aaaa0000-0000-0000-0000-000000000004');
+select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000009","role":"authenticated"}', true);
+set local role authenticated;
+select is(
+  (select sub_sessions from fn_sub_balance('aaaa0000-0000-0000-0000-000000000009', 'bbbb0000-0000-0000-0000-000000000001')),
+  1, '候補升位:新請假出現後自動確定上場並計費');
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+-- ---------- v1.3 報名窗口:賽前 7 天才開放 ----------
+select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000009","role":"authenticated"}', true);
+set local role authenticated;
 select throws_ok(
-  $$ select fn_sub_signup('cccc0000-0000-0000-0000-000000000004') $$,
-  'P0001', '本場已無遞補缺額', '案例10:無缺額時報名被拒');
+  $$ select fn_sub_signup('cccc0000-0000-0000-0000-000000000005') $$,
+  'P0001', '尚未開放報名(賽前 7 天起可登記)', '窗口:20 天後的場次不可報名');
 reset role;
 select set_config('request.jwt.claims', '', true);
 
@@ -149,7 +211,7 @@ select is(
   (select open_slots::int from v_session_slots where session_id = 'cccc0000-0000-0000-0000-000000000003'),
   0, '案例6:逾期請假不開放遞補名額');
 
--- ---------- 案例 5:取消場次 → 全員一律退費、遞補單場費作廢 ----------
+-- ---------- 案例 5:取消場次 → 全員一律退費、候補單場費作廢 ----------
 insert into events (session_id, season_member_id, type, created_by, created_at) values
   ('cccc0000-0000-0000-0000-000000000002', 'dddd0000-0000-0000-0000-000000000001', 'leave', 'aaaa0000-0000-0000-0000-000000000002', now() - interval '1 hour');
 insert into session_subs (session_id, profile_id, status, created_by) values
@@ -160,7 +222,7 @@ select is(
   'session_cancelled', '案例5:場次取消 → 未請假者也視同退費');
 select is(
   (select sub_sessions from fn_sub_balance('aaaa0000-0000-0000-0000-000000000007', 'bbbb0000-0000-0000-0000-000000000001')),
-  2, '案例5:取消場次的遞補單場費作廢(3 場報名只計 2 場)');
+  2, '案例5:取消場次的候補單場費作廢(3 場報名只計 2 場)');
 
 -- m1 此時:場次1 已遞補 + 場次4 已遞補 + 場次2 取消 = 可退 3 場
 select is(
@@ -199,7 +261,7 @@ select set_config('request.jwt.claims', '', true);
 -- ---------- 案例 7:結算後鎖定所有寫入 ----------
 select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000001","role":"authenticated"}', true);
 set local role authenticated;
-select fn_admin_settle_season('bbbb0000-0000-0000-0000-000000000001');
+select lives_ok($$ select fn_admin_settle_season('bbbb0000-0000-0000-0000-000000000001') $$, '案例7:管理員結算成功');
 reset role;
 select set_config('request.jwt.claims', '', true);
 

@@ -40,6 +40,10 @@ export default function NewSeasonPage() {
               請假截止(賽前小時)
               <input name="leave_deadline_hours" type="number" defaultValue={2} min={0} className={inputCls} />
             </label>
+            <label className="block text-sm">
+              候補報名開放(賽前天數)
+              <input name="sub_signup_open_days" type="number" defaultValue={7} min={1} className={inputCls} />
+            </label>
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input name="refund_requires_sub" type="checkbox" defaultChecked />

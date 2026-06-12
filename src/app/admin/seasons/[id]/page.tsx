@@ -65,9 +65,10 @@ export default async function SeasonDetailPage({
     supabase.from("v_session_matching").select("*").eq("season_id", seasonId),
     supabase.from("profiles").select("id, display_name").order("display_name"),
     supabase
-      .from("session_subs")
-      .select("*, sessions!inner(season_id, session_date, status), profiles(display_name)")
-      .eq("sessions.season_id", seasonId),
+      .from("v_sub_entries")
+      .select("*")
+      .eq("season_id", seasonId)
+      .order("session_date"),
   ]);
 
   const profileName = new Map(
@@ -91,18 +92,25 @@ export default async function SeasonDetailPage({
     })
   );
 
-  const subProfileIds = [
-    ...new Set((seasonSubs ?? []).map((s) => s.profile_id as string)),
-  ];
-  const subLedger = await Promise.all(
-    subProfileIds.map(async (pid) => {
-      const { data } = await supabase.rpc("fn_sub_balance", {
-        p_profile_id: pid,
-        p_season_id: seasonId,
-      });
-      return { profileId: pid, balance: (data as Record<string, number>[])?.[0] };
-    })
-  );
+  // 候補/臨打帳務:每筆報名一列(確定上場才計費),已繳從 payment_events 加總
+  const entryIds = (seasonSubs ?? []).map((s) => s.session_sub_id as string);
+  const { data: subPayments } = entryIds.length
+    ? await supabase
+        .from("payment_events")
+        .select("session_sub_id, amount")
+        .in("session_sub_id", entryIds)
+    : { data: [] };
+  const paidByEntry = new Map<string, number>();
+  for (const p of subPayments ?? []) {
+    paidByEntry.set(
+      p.session_sub_id,
+      (paidByEntry.get(p.session_sub_id) ?? 0) + p.amount
+    );
+  }
+  const subName = (e: { profile_id: string | null; guest_name: string | null }) =>
+    e.profile_id
+      ? profileName.get(e.profile_id) ?? "(未命名)"
+      : `${e.guest_name}(臨打)`;
 
   const activeRule = rules?.[0];
 
@@ -181,15 +189,32 @@ export default async function SeasonDetailPage({
                     </thead>
                     <tbody>
                       {rows.map((r) => (
-                        <tr key={r.season_member_id} className="border-t border-zinc-100">
-                          <td className="py-1.5">{r.leave_rank ?? "-"}</td>
-                          <td>{memberName.get(r.season_member_id)}</td>
+                        <tr
+                          key={r.season_member_id ?? r.session_sub_id}
+                          className="border-t border-zinc-100"
+                        >
+                          <td className="py-1.5">{r.leave_rank ?? r.sub_rank ?? "-"}</td>
                           <td>
-                            <StatusBadge status={r.member_status} />
+                            {r.season_member_id ? (
+                              memberName.get(r.season_member_id)
+                            ) : (
+                              <span className="text-zinc-400">—</span>
+                            )}
                           </td>
                           <td>
-                            {r.sub_profile_id
-                              ? `${profileName.get(r.sub_profile_id)}${r.sub_status === "no_show" ? "(未到)" : ""}`
+                            {r.member_status ? (
+                              <StatusBadge status={r.member_status} />
+                            ) : (
+                              <Badge tone="yellow">候補中</Badge>
+                            )}
+                          </td>
+                          <td>
+                            {r.sub_profile_id || r.sub_guest_name
+                              ? `${
+                                  r.sub_profile_id
+                                    ? profileName.get(r.sub_profile_id)
+                                    : `${r.sub_guest_name}(臨打)`
+                                }${r.sub_status === "no_show" ? "(未到)" : ""}`
                               : "—"}
                           </td>
                           <td className="text-right">
@@ -197,7 +222,7 @@ export default async function SeasonDetailPage({
                               <ActionButton
                                 action={markSubNoShow.bind(null, seasonId, r.session_sub_id)}
                                 label="標記未到"
-                                confirmText="標記遞補者未到場?配對不變、請假者照退,費用線下處理。"
+                                confirmText="標記候補者未到場?配對不變、請假者照退,費用線下處理。"
                               />
                             )}
                           </td>
@@ -398,6 +423,7 @@ export default async function SeasonDetailPage({
                 <th>每場退費</th>
                 <th>遞補單場費</th>
                 <th>截止(小時)</th>
+                <th>報名開放(天)</th>
                 <th>須遞補</th>
               </tr>
             </thead>
@@ -412,6 +438,7 @@ export default async function SeasonDetailPage({
                   <td>{formatNTD(r.refund_per_session)}</td>
                   <td>{formatNTD(r.sub_fee_per_session)}</td>
                   <td>{r.leave_deadline_hours}</td>
+                  <td>{r.sub_signup_open_days ?? 7}</td>
                   <td>{r.refund_requires_sub ? "是" : "否"}</td>
                 </tr>
               ))}
@@ -439,6 +466,10 @@ export default async function SeasonDetailPage({
                   <label className="block text-sm">
                     截止(小時)
                     <input name="leave_deadline_hours" type="number" defaultValue={activeRule.leave_deadline_hours} className={inputCls} />
+                  </label>
+                  <label className="block text-sm">
+                    候補報名開放(賽前天數)
+                    <input name="sub_signup_open_days" type="number" min={1} defaultValue={activeRule.sub_signup_open_days ?? 7} className={inputCls} />
                   </label>
                 </div>
                 <label className="mt-2 flex items-center gap-2 text-sm">
@@ -490,35 +521,49 @@ export default async function SeasonDetailPage({
         </Card>
       </section>
 
-      {/* ---------- 帳務總表(遞補者) ---------- */}
+      {/* ---------- 帳務總表(候補/臨打) ---------- */}
       <section className="space-y-3">
-        <h2 className="font-semibold">帳務總表 — 遞補者</h2>
+        <h2 className="font-semibold">帳務總表 — 候補/臨打(每筆報名一列,確定上場才計費)</h2>
         <Card>
-          {subLedger.length === 0 ? (
-            <p className="text-sm text-zinc-400">本季尚無遞補報名</p>
+          {(seasonSubs ?? []).length === 0 ? (
+            <p className="text-sm text-zinc-400">本季尚無候補報名</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-zinc-500">
-                  <th className="py-1">遞補者</th>
-                  <th className="text-right">遞補場次</th>
+                  <th className="py-1">姓名</th>
+                  <th>場次</th>
+                  <th>狀態</th>
                   <th className="text-right">應繳</th>
                   <th className="text-right">已繳</th>
-                  <th className="text-right">餘額</th>
                 </tr>
               </thead>
               <tbody>
-                {subLedger.map(({ profileId, balance }) => (
-                  <tr key={profileId} className="border-t border-zinc-100">
-                    <td className="py-2">{profileName.get(profileId)}</td>
-                    <td className="text-right">{balance?.sub_sessions ?? 0}</td>
-                    <td className="text-right">{balance ? formatNTD(balance.amount_due) : "-"}</td>
-                    <td className="text-right">{balance ? formatNTD(balance.paid_total) : "-"}</td>
-                    <td className={`text-right font-medium ${balance && balance.balance < 0 ? "text-rose-600" : "text-emerald-700"}`}>
-                      {balance ? formatNTD(balance.balance) : "-"}
-                    </td>
-                  </tr>
-                ))}
+                {(seasonSubs ?? [])
+                  .filter((e) => e.status !== "withdrawn")
+                  .map((e) => (
+                    <tr key={e.session_sub_id} className="border-t border-zinc-100">
+                      <td className="py-2">{subName(e)}</td>
+                      <td>{formatDate(e.session_date)}</td>
+                      <td>
+                        {e.session_status === "cancelled" ? (
+                          <Badge tone="gray">場次取消</Badge>
+                        ) : e.status === "no_show" ? (
+                          <Badge tone="red">未到場</Badge>
+                        ) : e.confirmed ? (
+                          <Badge tone="green">確定上場</Badge>
+                        ) : (
+                          <Badge tone="yellow">候補中</Badge>
+                        )}
+                      </td>
+                      <td className="text-right">
+                        {e.confirmed ? formatNTD(e.sub_fee_per_session) : "—"}
+                      </td>
+                      <td className="text-right">
+                        {formatNTD(paidByEntry.get(e.session_sub_id) ?? 0)}
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           )}
@@ -542,18 +587,14 @@ export default async function SeasonDetailPage({
                         </option>
                       ))}
                     </optgroup>
-                    <optgroup label="遞補報名(單場費)">
+                    <optgroup label="候補/臨打(單場費)">
                       {(seasonSubs ?? [])
-                        .filter((s) => s.status !== "withdrawn")
-                        .map((s) => {
-                          const sess = s.sessions as unknown as { session_date: string };
-                          return (
-                            <option key={s.id} value={`sub:${s.id}`}>
-                              {(s.profiles as { display_name: string } | null)?.display_name}{" "}
-                              {formatDate(sess.session_date)}
-                            </option>
-                          );
-                        })}
+                        .filter((e) => e.status !== "withdrawn")
+                        .map((e) => (
+                          <option key={e.session_sub_id} value={`sub:${e.session_sub_id}`}>
+                            {subName(e)} {formatDate(e.session_date)}
+                          </option>
+                        ))}
                     </optgroup>
                   </select>
                 </label>
