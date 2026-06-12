@@ -1,0 +1,48 @@
+# Supabase Free 無自動備份,帳務資料每週自行 pg_dump。
+# 備份以 git commit 存到 db-backups 分支(保留歷史、不汙染 main)。
+# 需要的 secrets:
+#   SUPABASE_DB_URL — Supabase Dashboard → Settings → Database → Connection string (URI)
+name: Weekly DB Backup
+
+on:
+  schedule:
+    - cron: "0 18 * * 0" # 每週一 02:00(台北時間,UTC+8)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Dump database
+        run: |
+          mkdir -p backups
+          supabase db dump --db-url "${{ secrets.SUPABASE_DB_URL }}" \
+            -f "backups/backup_$(date +%Y%m%d).sql" --data-only
+          supabase db dump --db-url "${{ secrets.SUPABASE_DB_URL }}" \
+            -f "backups/schema_$(date +%Y%m%d).sql"
+
+      - name: Commit to db-backups branch
+        run: |
+          git config user.name "backup-bot"
+          git config user.email "backup-bot@users.noreply.github.com"
+          git fetch origin db-backups || true
+          git checkout db-backups 2>/dev/null || git checkout -b db-backups
+          git add backups/
+          git commit -m "DB backup $(date +%Y-%m-%d)" || echo "no changes"
+          git push origin db-backups
+
+      - name: Upload as artifact (額外保險,保留 90 天)
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: backups/
+          retention-days: 90

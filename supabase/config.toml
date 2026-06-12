@@ -1,0 +1,14 @@
+# Supabase CLI 設定(supabase start / db reset / test db 用)
+project_id = "volleyball-app"
+
+[db]
+port = 54322
+major_version = 15
+
+[api]
+port = 54321
+schemas = ["public"]
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/line/callback"]
