@@ -59,7 +59,9 @@ export default async function SettlePage({
   const nameOf = new Map(
     (members ?? []).map((m) => [
       m.id,
-      (m.profiles as { display_name: string } | null)?.display_name ?? "(未命名)",
+      (m.profiles as { display_name: string } | null)?.display_name ??
+        (m.member_name as string | null) ??
+        "(未命名)",
     ])
   );
   const totalPending = rows.reduce((sum, r) => sum + r.pending, 0);

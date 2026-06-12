@@ -159,7 +159,18 @@ export async function cancelSession(
   return { ok: true, message: "場次已取消,該場全員一律退費" };
 }
 
-/** 加入季成員 */
+/** 刪除季(UI 已做二次確認;連動刪除場次/事件/帳務) */
+export async function deleteSeason(seasonId: string): Promise<ActionResult> {
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase.rpc("fn_admin_delete_season", {
+    p_season_id: seasonId,
+  });
+  revalidatePath("/admin/seasons");
+  if (error) return { ok: false, message: errMessage(error) };
+  return { ok: true, message: "季已刪除" };
+}
+
+/** 加入季成員(已有帳號) */
 export async function addMember(
   seasonId: string,
   formData: FormData
@@ -173,6 +184,54 @@ export async function addMember(
   revalidatePath(`/admin/seasons/${seasonId}`);
   if (error) return { ok: false, message: errMessage(error) };
   return { ok: true, message: "成員已加入" };
+}
+
+/** 加入季成員(姓名制,之後可綁定帳號) */
+export async function addMemberByName(
+  seasonId: string,
+  formData: FormData
+): Promise<ActionResult> {
+  const { supabase } = await requireAdmin();
+  const name = String(formData.get("member_name")).trim();
+  if (!name) return { ok: false, message: "請輸入姓名" };
+  const { error } = await supabase.from("season_members").insert({
+    season_id: seasonId,
+    member_name: name,
+    joined_at: String(formData.get("joined_at")),
+  });
+  revalidatePath(`/admin/seasons/${seasonId}`);
+  if (error) return { ok: false, message: errMessage(error) };
+  return { ok: true, message: `已將 ${name} 加入名單` };
+}
+
+/** 移除成員(僅限無請假/繳費紀錄者;有紀錄請用標記退出) */
+export async function deleteMember(
+  seasonId: string,
+  memberId: string
+): Promise<ActionResult> {
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase.rpc("fn_admin_delete_member", {
+    p_season_member_id: memberId,
+  });
+  revalidatePath(`/admin/seasons/${seasonId}`);
+  if (error) return { ok: false, message: errMessage(error) };
+  return { ok: true, message: "已從名單移除" };
+}
+
+/** 姓名制成員綁定 LINE 帳號 */
+export async function linkMember(
+  seasonId: string,
+  memberId: string,
+  formData: FormData
+): Promise<ActionResult> {
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase.rpc("fn_admin_link_member", {
+    p_season_member_id: memberId,
+    p_profile_id: String(formData.get("profile_id")),
+  });
+  revalidatePath(`/admin/seasons/${seasonId}`);
+  if (error) return { ok: false, message: errMessage(error) };
+  return { ok: true, message: "帳號已綁定" };
 }
 
 /** 標記成員退出 */

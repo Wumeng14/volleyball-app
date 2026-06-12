@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { toggleViewAsMember } from "@/app/actions";
 import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 
@@ -31,6 +33,9 @@ export default async function RootLayout({
     displayName = profile?.display_name ?? null;
   }
 
+  const cookieStore = await cookies();
+  const viewAsMember = isAdmin && cookieStore.get("view_as_member")?.value === "1";
+
   return (
     <html lang="zh-TW">
       <body className="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
@@ -44,9 +49,9 @@ export default async function RootLayout({
                 我的紀錄
               </Link>
               <Link href="/sub" className="text-zinc-600 hover:text-zinc-900">
-                遞補
+                候補
               </Link>
-              {isAdmin && (
+              {isAdmin && !viewAsMember && (
                 <Link
                   href="/admin/seasons"
                   className="text-zinc-600 hover:text-zinc-900"
@@ -58,6 +63,13 @@ export default async function RootLayout({
                 <span className="hidden text-zinc-500 sm:inline">
                   {displayName}
                 </span>
+                {isAdmin && !viewAsMember && (
+                  <form action={toggleViewAsMember}>
+                    <button className="text-zinc-400 hover:text-zinc-600">
+                      成員視角
+                    </button>
+                  </form>
+                )}
                 <form action="/auth/signout" method="post">
                   <button className="text-zinc-400 hover:text-zinc-600">
                     登出
@@ -65,6 +77,18 @@ export default async function RootLayout({
                 </form>
               </div>
             </div>
+            {viewAsMember && (
+              <div className="bg-amber-100 text-amber-900">
+                <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-1.5 text-xs">
+                  <span>目前以「一般成員視角」瀏覽,管理功能已隱藏</span>
+                  <form action={toggleViewAsMember}>
+                    <button className="font-medium underline">
+                      切回管理員
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
           </nav>
         )}
         <main className="mx-auto max-w-2xl px-4 py-6">{children}</main>

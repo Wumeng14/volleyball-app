@@ -1,10 +1,13 @@
 import {
   addMember,
+  addMemberByName,
   addRuleVersion,
   addSession,
   adminCancelSub,
   cancelSession,
   createGuestSub,
+  deleteMember,
+  linkMember,
   markMemberQuit,
   markSubNoShow,
   proxyEvent,
@@ -77,7 +80,9 @@ export default async function SeasonDetailPage({
   const memberName = new Map(
     (members ?? []).map((m) => [
       m.id,
-      (m.profiles as { display_name: string } | null)?.display_name ?? "(未命名)",
+      (m.profiles as { display_name: string } | null)?.display_name ??
+        (m.member_name as string | null) ??
+        "(未命名)",
     ])
   );
   const slotBySession = new Map((slots ?? []).map((s) => [s.session_id, s]));
@@ -345,7 +350,14 @@ export default async function SeasonDetailPage({
             <tbody>
               {(members ?? []).map((m) => (
                 <tr key={m.id} className="border-t border-zinc-100">
-                  <td className="py-2">{memberName.get(m.id)}</td>
+                  <td className="py-2">
+                    {memberName.get(m.id)}
+                    {!m.profile_id && (
+                      <span className="ml-1 align-middle">
+                        <Badge tone="gray">未綁定帳號</Badge>
+                      </span>
+                    )}
+                  </td>
                   <td>{m.joined_at}</td>
                   <td>
                     {m.status === "active" ? (
@@ -355,12 +367,43 @@ export default async function SeasonDetailPage({
                     )}
                   </td>
                   <td className="text-right">
-                    {isActive && m.status === "active" && (
-                      <ActionButton
-                        action={markMemberQuit.bind(null, seasonId, m.id)}
-                        label="標記退出"
-                        confirmText={`標記 ${memberName.get(m.id)} 退出本季?`}
-                      />
+                    {isActive && (
+                      <span className="inline-flex flex-wrap justify-end gap-1">
+                        {!m.profile_id && (
+                          <details className="relative inline-block text-left">
+                            <summary className="cursor-pointer rounded-lg border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50">
+                              綁定帳號
+                            </summary>
+                            <div className="mt-1">
+                              <ActionForm
+                                action={linkMember.bind(null, seasonId, m.id)}
+                                submitLabel="綁定"
+                              >
+                                <select name="profile_id" className={inputCls}>
+                                  {(allProfiles ?? []).map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.display_name ?? "(未命名)"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </ActionForm>
+                            </div>
+                          </details>
+                        )}
+                        {m.status === "active" && (
+                          <ActionButton
+                            action={markMemberQuit.bind(null, seasonId, m.id)}
+                            label="標記退出"
+                            confirmText={`標記 ${memberName.get(m.id)} 退出本季?(保留其紀錄與帳務)`}
+                          />
+                        )}
+                        <ActionButton
+                          action={deleteMember.bind(null, seasonId, m.id)}
+                          label="移除"
+                          variant="danger"
+                          confirmText={`將 ${memberName.get(m.id)} 從名單移除?(僅限沒有請假/繳費紀錄的成員)`}
+                        />
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -372,17 +415,14 @@ export default async function SeasonDetailPage({
               <summary className="cursor-pointer text-sm font-medium text-emerald-700">
                 + 加入成員
               </summary>
-              <ActionForm action={addMember.bind(null, seasonId)} submitLabel="加入">
-                <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ActionForm
+                  action={addMemberByName.bind(null, seasonId)}
+                  submitLabel="用姓名加入"
+                >
                   <label className="block text-sm">
-                    選擇使用者(需先 LINE 登入過)
-                    <select name="profile_id" className={inputCls}>
-                      {(allProfiles ?? []).map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.display_name ?? "(未命名)"}
-                        </option>
-                      ))}
-                    </select>
+                    姓名(不需要對方先登入,之後可綁定帳號)
+                    <input name="member_name" className={inputCls} placeholder="小華" />
                   </label>
                   <label className="block text-sm">
                     加入日(中途加入按剩餘場次比例計費)
@@ -394,8 +434,30 @@ export default async function SeasonDetailPage({
                       className={inputCls}
                     />
                   </label>
-                </div>
-              </ActionForm>
+                </ActionForm>
+                <ActionForm action={addMember.bind(null, seasonId)} submitLabel="加入">
+                  <label className="block text-sm">
+                    或選擇已登入過的帳號
+                    <select name="profile_id" className={inputCls}>
+                      {(allProfiles ?? []).map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.display_name ?? "(未命名)"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm">
+                    加入日
+                    <input
+                      name="joined_at"
+                      type="date"
+                      required
+                      defaultValue={new Date().toISOString().slice(0, 10)}
+                      className={inputCls}
+                    />
+                  </label>
+                </ActionForm>
+              </div>
             </details>
           )}
         </Card>

@@ -1,3 +1,4 @@
+import { DeleteSeasonButton } from "@/components/DeleteSeasonButton";
 import { Badge, Card } from "@/components/ui";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
@@ -35,17 +36,22 @@ export default async function SeasonsPage() {
         {seasons?.map((s) => {
           const st = SEASON_STATUS[s.status] ?? SEASON_STATUS.draft;
           return (
-            <Link key={s.id} href={`/admin/seasons/${s.id}`} className="block">
-              <Card className="flex items-center justify-between hover:border-emerald-300">
-                <div>
-                  <p className="font-medium">{s.name}</p>
-                  <p className="text-sm text-zinc-500">
-                    {s.start_date} ~ {s.end_date}
-                  </p>
-                </div>
-                <Badge tone={st.tone}>{st.label}</Badge>
-              </Card>
-            </Link>
+            <Card
+              key={s.id}
+              className="flex items-center gap-3 hover:border-emerald-300"
+            >
+              <Link
+                href={`/admin/seasons/${s.id}`}
+                className="min-w-0 flex-1"
+              >
+                <p className="font-medium">{s.name}</p>
+                <p className="text-sm text-zinc-500">
+                  {s.start_date} ~ {s.end_date}
+                </p>
+              </Link>
+              <Badge tone={st.tone}>{st.label}</Badge>
+              <DeleteSeasonButton seasonId={s.id} seasonName={s.name} />
+            </Card>
           );
         })}
       </div>

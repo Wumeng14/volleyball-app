@@ -2,6 +2,21 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+
+/** 管理員 ↔ 一般成員視角切換(僅影響畫面,權限仍由 RLS 把關) */
+export async function toggleViewAsMember() {
+  const cookieStore = await cookies();
+  const current = cookieStore.get("view_as_member")?.value === "1";
+  if (current) {
+    cookieStore.delete("view_as_member");
+  } else {
+    cookieStore.set("view_as_member", "1", { path: "/", maxAge: 60 * 60 * 24 });
+  }
+  revalidatePath("/", "layout");
+  redirect("/");
+}
 
 type ActionResult = { ok: boolean; message: string };
 

@@ -6,7 +6,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(37);
+select plan(41);
 
 -- ---------- Fixtures ----------
 insert into auth.users (id, instance_id, aud, role, created_at, updated_at)
@@ -244,6 +244,30 @@ select is(
   fn_member_season_fee('dddd0000-0000-0000-0000-000000000005'),
   670, '案例9:1000 × 2/3 = 666.7 → 進位至十位 = 670');
 
+-- ---------- v1.4 成員名單管理 ----------
+select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+set local role authenticated;
+select throws_ok(
+  $$ select fn_admin_delete_member('dddd0000-0000-0000-0000-000000000001') $$,
+  'P0001', '此成員已有請假或繳費紀錄,請改用「標記退出」保留帳務事實',
+  '管理:有紀錄的成員不可刪除');
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+-- 姓名制成員:不需帳號即可加入名單,誤加可刪
+insert into season_members (id, season_id, member_name, joined_at) values
+  ('dddd0000-0000-0000-0000-000000000006', 'bbbb0000-0000-0000-0000-000000000002', '阿強', current_date);
+select is(
+  (select count(*) from season_members where member_name = '阿強'),
+  1::bigint, '管理:可用姓名直接加入成員(無帳號)');
+select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+set local role authenticated;
+select lives_ok(
+  $$ select fn_admin_delete_member('dddd0000-0000-0000-0000-000000000006') $$,
+  '管理:無紀錄成員可刪除');
+reset role;
+select set_config('request.jwt.claims', '', true);
+
 -- ---------- 案例 8:隊員 A 看不到隊員 B 的繳費;不可查他人試算 ----------
 insert into payment_events (season_member_id, type, amount, created_by) values
   ('dddd0000-0000-0000-0000-000000000001', 'payment', 1800, 'aaaa0000-0000-0000-0000-000000000001');
@@ -288,6 +312,18 @@ select throws_ok(
   'P0001', '本季非進行中,無法操作', '案例7:結算後隊員請假被拒');
 reset role;
 select set_config('request.jwt.claims', '', true);
+
+-- ---------- v1.4 刪除季:連動清除場次/事件/帳務 ----------
+select set_config('request.jwt.claims', '{"sub":"aaaa0000-0000-0000-0000-000000000001","role":"authenticated"}', true);
+set local role authenticated;
+select lives_ok(
+  $$ select fn_admin_delete_season('bbbb0000-0000-0000-0000-000000000001') $$,
+  '管理:刪除季成功(含已結算季)');
+reset role;
+select set_config('request.jwt.claims', '', true);
+select is(
+  (select count(*) from events),
+  0::bigint, '管理:刪除季後該季事件連動清除');
 
 select * from finish();
 rollback;

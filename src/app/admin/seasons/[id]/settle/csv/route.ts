@@ -41,7 +41,9 @@ export async function GET(
     });
     const p = (data as Record<string, number>[])?.[0];
     const name =
-      (m.profiles as { display_name: string } | null)?.display_name ?? "";
+      (m.profiles as { display_name: string } | null)?.display_name ??
+      (m.member_name as string | null) ??
+      "";
     lines.push(
       [
         name,
