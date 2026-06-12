@@ -207,21 +207,18 @@ export async function proxyEvent(
   return { ok: true, message: "代登完成" };
 }
 
-/** 管理員代登候補(既有 profile;超出缺額自動排候補) */
-export async function proxySub(
+/** 管理員取消任一筆候補報名(本人沒空取消、或登記錯誤時用) */
+export async function adminCancelSub(
   seasonId: string,
-  formData: FormData
+  sessionSubId: string
 ): Promise<ActionResult> {
-  const { supabase, userId } = await requireAdmin();
-  const { error } = await supabase.from("session_subs").insert({
-    session_id: String(formData.get("session_id")),
-    profile_id: String(formData.get("profile_id")),
-    status: "signed_up",
-    created_by: userId,
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase.rpc("fn_sub_withdraw", {
+    p_session_sub_id: sessionSubId,
   });
   revalidatePath(`/admin/seasons/${seasonId}`);
   if (error) return { ok: false, message: errMessage(error) };
-  return { ok: true, message: "代登完成(超出缺額時自動排候補)" };
+  return { ok: true, message: "已取消該筆報名" };
 }
 
 /** 管理員代登「無帳號臨打」:姓名制,不建帳號 */

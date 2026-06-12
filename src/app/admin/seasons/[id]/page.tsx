@@ -2,12 +2,12 @@ import {
   addMember,
   addRuleVersion,
   addSession,
+  adminCancelSub,
   cancelSession,
   createGuestSub,
   markMemberQuit,
   markSubNoShow,
   proxyEvent,
-  proxySub,
   recordPayment,
 } from "@/app/admin/actions";
 import { ActionButton, ActionForm } from "@/components/ActionForm";
@@ -219,11 +219,18 @@ export default async function SeasonDetailPage({
                           </td>
                           <td className="text-right">
                             {isActive && r.session_sub_id && r.sub_status === "signed_up" && (
-                              <ActionButton
-                                action={markSubNoShow.bind(null, seasonId, r.session_sub_id)}
-                                label="標記未到"
-                                confirmText="標記候補者未到場?配對不變、請假者照退,費用線下處理。"
-                              />
+                              <span className="inline-flex gap-1">
+                                <ActionButton
+                                  action={markSubNoShow.bind(null, seasonId, r.session_sub_id)}
+                                  label="標記未到"
+                                  confirmText="標記候補者未到場?配對不變、請假者照退,費用線下處理。"
+                                />
+                                <ActionButton
+                                  action={adminCancelSub.bind(null, seasonId, r.session_sub_id)}
+                                  label="取消報名"
+                                  confirmText="取消這筆候補報名?配對與帳務會即時重算。"
+                                />
+                              </span>
                             )}
                           </td>
                         </tr>
@@ -238,7 +245,7 @@ export default async function SeasonDetailPage({
                   <summary className="cursor-pointer text-sm text-zinc-500">
                     代登(請假 / 遞補 / 臨打)
                   </summary>
-                  <div className="mt-2 grid gap-4 sm:grid-cols-3">
+                  <div className="mt-2 grid gap-4 sm:grid-cols-2">
                     <ActionForm
                       action={proxyEvent.bind(null, seasonId)}
                       submitLabel="代登事件"
@@ -267,29 +274,12 @@ export default async function SeasonDetailPage({
                     </ActionForm>
 
                     <ActionForm
-                      action={proxySub.bind(null, seasonId)}
-                      submitLabel="代登遞補"
-                    >
-                      <input type="hidden" name="session_id" value={s.id} />
-                      <label className="block text-sm">
-                        遞補者(已有帳號)
-                        <select name="profile_id" className={inputCls}>
-                          {(allProfiles ?? []).map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.display_name ?? "(未命名)"}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </ActionForm>
-
-                    <ActionForm
                       action={createGuestSub.bind(null, seasonId)}
-                      submitLabel="臨打代登"
+                      submitLabel="候補/臨打代登"
                     >
                       <input type="hidden" name="session_id" value={s.id} />
                       <label className="block text-sm">
-                        無帳號臨打姓名
+                        姓名(幫沒用系統的人登記候補)
                         <input name="display_name" className={inputCls} placeholder="小明" />
                       </label>
                     </ActionForm>
