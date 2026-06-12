@@ -56,6 +56,15 @@ export async function createSeason(formData: FormData) {
     dates.push(d.toISOString().slice(0, 10));
   }
 
+  // 防連點/重複送出:同名且進行中的季已存在就直接導過去,不再重複建立
+  const { data: existing } = await supabase
+    .from("seasons")
+    .select("id")
+    .eq("name", name)
+    .eq("status", "active")
+    .maybeSingle();
+  if (existing) redirect(`/admin/seasons/${existing.id}`);
+
   const { data: season, error: seasonErr } = await supabase
     .from("seasons")
     .insert({

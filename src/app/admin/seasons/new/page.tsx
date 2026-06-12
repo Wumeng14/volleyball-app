@@ -1,4 +1,5 @@
 import { createSeason } from "@/app/admin/actions";
+import { SubmitButton } from "@/components/SubmitButton";
 import { Card } from "@/components/ui";
 
 const inputCls =
@@ -92,12 +93,7 @@ export default function NewSeasonPage() {
           </p>
         </Card>
 
-        <button
-          type="submit"
-          className="w-full rounded-lg bg-emerald-600 py-3 font-medium text-white hover:bg-emerald-700"
-        >
-          建立季與場次
-        </button>
+        <SubmitButton label="建立季與場次" pendingLabel="建立中,請稍候…" />
       </form>
     </div>
   );
